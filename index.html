@@ -1,35 +1,4 @@
 <!DOCTYPE html>
-<!--
-  SOUNDBEAM — STANDALONE SETUP (one-time, ~5 minutes, free, no credit card required)
-
-  This version syncs through your own free Firebase project instead of Claude, so it
-  works from any host: your own server, GitHub Pages, Netlify, or just opened as a file.
-
-  1. Go to https://console.firebase.google.com -> "Add project" (free, no card needed).
-  2. In the project: Build -> Firestore Database -> Create database -> pick any region.
-  3. Open the "Rules" tab and replace the contents with the block below, then click Publish:
-
-       rules_version = '2';
-       service cloud.firestore {
-         match /databases/{database}/documents {
-           match /rooms/{roomId} {
-             allow read, write: if true;
-           }
-         }
-       }
-
-     (This only opens the "rooms" collection this app uses — nothing else in your
-     project — and has no login system, the same trust model as any "join with a
-     code" app: whoever has a live 6-digit code can use that one room.)
-
-  4. Project settings (gear icon, top left) -> scroll to "Your apps" -> click the
-     web icon "</>" -> register an app (any nickname, skip Hosting) -> it shows you
-     a firebaseConfig object with 6 values.
-  5. Paste those 6 values into FIREBASE_CONFIG below (search for "PASTE_" in this
-     file), replacing the placeholders.
-  6. Save, then host this file anywhere and open the SAME url on both devices —
-     opening it locally as a double-clicked file works too.
--->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -124,8 +93,6 @@
     box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 24px 60px var(--shadow-soft);
     position: relative;
   }
-
-  /* ---------- Home screen ---------- */
   .unit-brand { text-align: center; margin-bottom: 4px; }
   .brand-mark {
     display: inline-flex;
@@ -190,7 +157,6 @@
     line-height: 1.5;
   }
 
-  /* ---------- Shared unit chrome ---------- */
   .back-btn {
     background: none;
     border: none;
@@ -242,8 +208,6 @@
     color: var(--ink-muted);
     letter-spacing: 0.05em;
   }
-
-  /* ---------- Fader ---------- */
   .fader-block { margin-bottom: 24px; }
   .fader-row {
     display: flex;
@@ -298,8 +262,6 @@
     border: 1px solid rgba(0,0,0,0.35);
     box-shadow: 0 2px 4px var(--shadow-strong), inset 0 0 0 3px var(--panel-alt);
   }
-
-  /* ---------- Receiver screen ---------- */
   .code-display {
     font-family: 'Space Mono', ui-monospace, monospace;
     font-size: clamp(2.1rem, 11vw, 2.7rem);
@@ -357,7 +319,6 @@
     min-height: 1.3em;
   }
 
-  /* ---------- Controller: connect ---------- */
   .connect-form { display: flex; gap: 8px; margin-bottom: 6px; }
   #codeInput {
     flex: 1;
@@ -398,7 +359,6 @@
     line-height: 1.4;
   }
 
-  /* ---------- Controller: connected ---------- */
   .dropzone {
     border: 2px dashed var(--border);
     border-radius: 16px;
@@ -639,10 +599,6 @@
   var ROOM_COLLECTION = 'rooms';
   var HEARTBEAT_MS = 8000;
   var ONLINE_TIMEOUT_MS = 20000;
-
-  // ---- Paste your Firebase project's config here (see the setup comment at the
-  // top of this file). All 6 values come from Firebase Console > Project settings
-  // > Your apps > the web app's config snippet. ----
   var FIREBASE_CONFIG = {
     apiKey: "AIzaSyBjNpuZS1uLJO4zWKjpkNLQ7vUoTRanaSs",
     authDomain: "soundbeam-63b0a.firebaseapp.com",
@@ -714,15 +670,10 @@
     el.style.setProperty('--fill', el.value + '%');
   }
 
-  /* ---------------- Firestore-backed db (drop-in for the same doc/get/set/update/onSnapshot shape) ---------------- */
 
   function isConfigured() {
     return !!FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey.indexOf('PASTE_') !== 0;
   }
-
-  // Firestore's JS SDK changed DocumentSnapshot.exists from a property (v8 / compat
-  // namespaced API) to a method in some releases. Handle either shape so this keeps
-  // working regardless of exactly which the loaded compat build exposes.
   function snapExists(snap) {
     return typeof snap.exists === 'function' ? snap.exists() : !!snap.exists;
   }
@@ -768,8 +719,6 @@
     }
     return dbPromise;
   }
-
-  /* ---------------- Local saved-sounds library (IndexedDB) ---------------- */
 
   function openLibrary() {
     return new Promise(function (resolve, reject) {
@@ -828,7 +777,6 @@
     });
   }
 
-  /* ---------------- Navigation ---------------- */
 
   function showScreen(id) {
     var screens = document.querySelectorAll('.screen');
@@ -851,14 +799,12 @@
     showScreen('screen-home');
   }
 
-  /* ---------------- Errors ---------------- */
 
   function showConnectError(msg) { $('#connectError').textContent = msg; }
   function clearConnectError() { $('#connectError').textContent = ''; }
   function showUploadError(msg) { $('#uploadError').textContent = msg; }
   function clearUploadError() { $('#uploadError').textContent = ''; }
 
-  /* ---------------- Receiver role ---------------- */
 
   function setReceiverLoading() {
     $('#receiverCode').textContent = '\u2014\u2014\u2014\u2014\u2014\u2014';
@@ -930,7 +876,6 @@
       showNowPlayingText('now playing: ' + (sound.name || 'sound'), 4000);
       triggerSpeakerAnimation();
     } catch (e) {
-      /* malformed payload, ignore quietly */
     }
   }
 
@@ -1005,7 +950,6 @@
     });
   }
 
-  /* ---------------- Controller role ---------------- */
 
   function setControllerStatus(online) {
     $('#controllerLamp').classList.toggle('lamp-on', online);
@@ -1189,8 +1133,6 @@
       showUploadError('Could not read that file. Try a different one.');
     });
   }
-
-  /* ---------------- Event wiring ---------------- */
 
   function wireEvents() {
     var roleButtons = document.querySelectorAll('.role-btn');
