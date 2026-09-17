@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<!--
+  SOUNDBEAM — STANDALONE SETUP (one-time, ~5 minutes, free, no credit card required)
+
+  This version syncs through your own free Firebase project instead of Claude, so it
+  works from any host: your own server, GitHub Pages, Netlify, or just opened as a file.
+
+  1. Go to https://console.firebase.google.com -> "Add project" (free, no card needed).
+  2. In the project: Build -> Firestore Database -> Create database -> pick any region.
+  3. Open the "Rules" tab and replace the contents with the block below, then click Publish:
+
+       rules_version = '2';
+       service cloud.firestore {
+         match /databases/{database}/documents {
+           match /rooms/{roomId} {
+             allow read, write: if true;
+           }
+         }
+       }
+
+     (This only opens the "rooms" collection this app uses — nothing else in your
+     project — and has no login system, the same trust model as any "join with a
+     code" app: whoever has a live 6-digit code can use that one room.)
+
+  4. Project settings (gear icon, top left) -> scroll to "Your apps" -> click the
+     web icon "</>" -> register an app (any nickname, skip Hosting) -> it shows you
+     a firebaseConfig object with 6 values.
+  5. Paste those 6 values into FIREBASE_CONFIG below (search for "PASTE_" in this
+     file), replacing the placeholders.
+  6. Save, then host this file anywhere and open the SAME url on both devices —
+     opening it locally as a double-clicked file works too.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SoundBeam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore-compat.js"></script>
+<style>
+  :root {
+    --panel: #E8E3D8;
+    --panel-alt: #F4F0E6;
+    --panel-inset: #D9D2C2;
+    --ink: #2B2620;
+    --ink-muted: #746A5A;
+    --brass: #A3763F;
+    --signal: #0E8E82;
+    --signal-soft: rgba(14, 142, 130, 0.14);
+    --live: #B33B1E;
+    --border: rgba(43, 38, 32, 0.14);
+    --shadow-strong: rgba(43, 38, 32, 0.28);
+    --shadow-soft: rgba(43, 38, 32, 0.13);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel: #201C18;
+      --panel-alt: #2B2620;
+      --panel-inset: #17140F;
+      --ink: #F1E9DA;
+      --ink-muted: #A79A85;
+      --brass: #C89B5C;
+      --signal: #57D8C9;
+      --signal-soft: rgba(87, 216, 201, 0.16);
+      --live: #F0714A;
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow-strong: rgba(0, 0, 0, 0.55);
+      --shadow-soft: rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --panel: #201C18;
+    --panel-alt: #2B2620;
+    --panel-inset: #17140F;
+    --ink: #F1E9DA;
+    --ink-muted: #A79A85;
+    --brass: #C89B5C;
+    --signal: #57D8C9;
+    --signal-soft: rgba(87, 216, 201, 0.16);
+    --live: #F0714A;
+    --border: rgba(255, 255, 255, 0.08);
+    --shadow-strong: rgba(0, 0, 0, 0.55);
+    --shadow-soft: rgba(0, 0, 0, 0.3);
+  }
+
+  * , *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--panel);
+    background-image: radial-gradient(ellipse 900px 500px at 50% -8%, var(--panel-alt), transparent 65%);
+    color: var(--ink);
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button, input { font-family: inherit; color: inherit; }
+
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  .app-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+
+  .screen { width: 100%; }
+
+  .unit {
+    width: 100%;
+    max-width: 440px;
+    margin: 0 auto;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    padding: 30px 24px 32px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 24px 60px var(--shadow-soft);
+    position: relative;
+  }
+
+  /* ---------- Home screen ---------- */
+  .unit-brand { text-align: center; margin-bottom: 4px; }
+  .brand-mark {
+    display: inline-flex;
+    width: 38px; height: 38px;
+    color: var(--signal);
+    margin-bottom: 10px;
+  }
+  .brand-mark svg { width: 100%; height: 100%; }
+  .unit-brand h1 {
+    font-size: clamp(1.5rem, 5vw, 1.9rem);
+    font-weight: 700;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .tagline { margin: 0; color: var(--ink-muted); font-size: 0.94rem; line-height: 1.4; }
+
+  .role-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 26px;
+  }
+  @media (max-width: 380px) {
+    .role-grid { grid-template-columns: 1fr; }
+  }
+  .role-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 3px 0 var(--shadow-strong), 0 10px 20px var(--shadow-soft);
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .role-btn:hover { transform: translateY(-2px); }
+  .role-btn:active {
+    transform: translateY(3px);
+    box-shadow: 0 0 0 var(--shadow-strong), 0 3px 6px var(--shadow-soft);
+  }
+  .role-icon {
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+    background: var(--signal-soft);
+    color: var(--signal);
+    flex-shrink: 0;
+  }
+  .role-icon svg { width: 19px; height: 19px; }
+  .role-title { display: block; font-size: 1rem; font-weight: 600; margin-bottom: 3px; }
+  .role-sub { display: block; font-size: 0.78rem; color: var(--ink-muted); line-height: 1.35; font-weight: 400; }
+
+  .home-note {
+    margin: 26px 0 0;
+    text-align: center;
+    font-size: 0.76rem;
+    color: var(--ink-muted);
+    line-height: 1.5;
+  }
+
+  /* ---------- Shared unit chrome ---------- */
+  .back-btn {
+    background: none;
+    border: none;
+    color: var(--ink-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 20px;
+    display: inline-block;
+  }
+  .back-btn:hover { color: var(--ink); }
+
+  .unit-label {
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    margin: 0 0 8px;
+  }
+  .unit-label--center { text-align: center; }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  .lamp {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--ink-muted);
+    opacity: 0.45;
+    transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+    flex-shrink: 0;
+  }
+  .lamp.lamp-on {
+    background: var(--signal);
+    opacity: 1;
+    box-shadow: 0 0 8px var(--signal);
+  }
+  .channel-badge {
+    font-family: 'Space Mono', ui-monospace, monospace;
+    font-size: 0.72rem;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: var(--panel-inset);
+    color: var(--ink-muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* ---------- Fader ---------- */
+  .fader-block { margin-bottom: 24px; }
+  .fader-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 9px;
+  }
+  .fader-label { font-size: 0.82rem; color: var(--ink-muted); }
+  .fader-value { font-family: 'Space Mono', ui-monospace, monospace; font-size: 0.82rem; }
+
+  .fader {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 30px;
+    background: transparent;
+    cursor: pointer;
+    display: block;
+  }
+  .fader::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 6px;
+    background: linear-gradient(to right, var(--signal) 0%, var(--signal) var(--fill, 100%), var(--panel-inset) var(--fill, 100%), var(--panel-inset) 100%);
+    border: 1px solid var(--border);
+  }
+  .fader::-moz-range-track {
+    height: 10px;
+    border-radius: 6px;
+    background: var(--panel-inset);
+    border: 1px solid var(--border);
+  }
+  .fader::-moz-range-progress {
+    height: 10px;
+    border-radius: 6px 0 0 6px;
+    background: var(--signal);
+  }
+  .fader::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 30px;
+    margin-top: -11px;
+    border-radius: 6px;
+    background: var(--brass);
+    border: 1px solid rgba(0,0,0,0.35);
+    box-shadow: 0 2px 4px var(--shadow-strong), inset 0 0 0 3px var(--panel-alt);
+  }
+  .fader::-moz-range-thumb {
+    width: 20px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--brass);
+    border: 1px solid rgba(0,0,0,0.35);
+    box-shadow: 0 2px 4px var(--shadow-strong), inset 0 0 0 3px var(--panel-alt);
+  }
+
+  /* ---------- Receiver screen ---------- */
+  .code-display {
+    font-family: 'Space Mono', ui-monospace, monospace;
+    font-size: clamp(2.1rem, 11vw, 2.7rem);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-align: center;
+    margin: 0 0 8px;
+  }
+  .code-hint {
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    margin: 0 0 22px;
+    min-height: 1.3em;
+  }
+
+  .speaker-stage {
+    position: relative;
+    width: 120px; height: 120px;
+    margin: 0 auto 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--signal);
+    opacity: 0;
+  }
+  @keyframes ring-pulse {
+    0% { transform: scale(0.5); opacity: 0.6; }
+    75% { opacity: 0; }
+    100% { transform: scale(1.65); opacity: 0; }
+  }
+  .speaker-stage.playing .r1 { animation: ring-pulse 1.15s ease-out; }
+  .speaker-stage.playing .r2 { animation: ring-pulse 1.15s ease-out 0.16s; }
+  .speaker-stage.playing .r3 { animation: ring-pulse 1.15s ease-out 0.32s; }
+  .speaker-core {
+    position: relative;
+    z-index: 1;
+    width: 58px; height: 58px;
+    border-radius: 50%;
+    background: var(--panel-inset);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--signal);
+  }
+  .speaker-core svg { width: 26px; height: 26px; }
+
+  .now-playing {
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+    margin: 0 0 24px;
+    min-height: 1.3em;
+  }
+
+  /* ---------- Controller: connect ---------- */
+  .connect-form { display: flex; gap: 8px; margin-bottom: 6px; }
+  #codeInput {
+    flex: 1;
+    min-width: 0;
+    font-family: 'Space Mono', ui-monospace, monospace;
+    font-size: 1.3rem;
+    letter-spacing: 0.14em;
+    text-align: center;
+    padding: 12px 8px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel-inset);
+    color: var(--ink);
+  }
+  #codeInput::placeholder { color: var(--ink-muted); opacity: 0.55; }
+
+  .btn-primary {
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: none;
+    background: var(--signal);
+    color: var(--panel-alt);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 3px 0 var(--shadow-strong);
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+    white-space: nowrap;
+  }
+  .btn-primary:active { transform: translateY(3px); box-shadow: none; }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+  .form-error {
+    color: var(--live);
+    font-size: 0.8rem;
+    min-height: 1.2em;
+    margin: 8px 2px 4px;
+    line-height: 1.4;
+  }
+
+  /* ---------- Controller: connected ---------- */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 22px 16px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--panel-inset);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    margin-bottom: 4px;
+  }
+  .dropzone.drag-active {
+    border-color: var(--signal);
+    background: var(--signal-soft);
+  }
+  .dropzone-icon { color: var(--ink-muted); width: 26px; height: 26px; }
+  .dropzone-text { font-size: 0.9rem; }
+  .dropzone-hint { font-size: 0.74rem; color: var(--ink-muted); }
+
+  .pads-block { margin-top: 26px; }
+
+  .pads-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
+    gap: 10px;
+  }
+  .pad {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 10px;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 2px 0 var(--shadow-soft);
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .pad:active, .pad.pad-pressed {
+    transform: translateY(2px) scale(0.97);
+    box-shadow: none;
+  }
+  .pad-name {
+    font-size: 0.8rem;
+    font-weight: 500;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+  .pad-icon-btn {
+    position: absolute;
+    top: 5px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: none;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-inset);
+    color: var(--ink-muted);
+    cursor: pointer;
+    padding: 0;
+  }
+  .pad-icon-btn:hover { color: var(--ink); }
+  .pad-preview { left: 5px; }
+  .pad-delete { right: 5px; }
+  .pad-icon-btn svg { width: 11px; height: 11px; }
+
+  .pads-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--ink-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    padding: 22px 14px;
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+
+    <section id="screen-home" class="screen">
+      <div class="unit">
+        <div class="unit-brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M24 44V22"></path>
+              <circle cx="24" cy="14" r="4"></circle>
+              <path d="M14 20c3-6 7-9 10-9s7 3 10 9" opacity="0.55"></path>
+              <path d="M8 25c4-10 10-16 16-16s12 6 16 16" opacity="0.3"></path>
+            </svg>
+          </span>
+          <h1>SoundBeam</h1>
+          <p class="tagline">Pick a device, then beam sound to the other one.</p>
+        </div>
+
+        <div class="role-grid">
+          <button type="button" class="role-btn" data-role="controller">
+            <span class="role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 19V5"></path>
+                <path d="M5 12l7-7 7 7"></path>
+              </svg>
+            </span>
+            <span class="role-title">Send sounds</span>
+            <span class="role-sub">Control another device from here</span>
+          </button>
+
+          <button type="button" class="role-btn" data-role="receiver">
+            <span class="role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="6" y="9" width="4" height="6" rx="0.5"></rect>
+                <path d="M10 8 L17 4 V20 L10 16 Z"></path>
+              </svg>
+            </span>
+            <span class="role-title">Play sounds</span>
+            <span class="role-sub">Let another device play through here</span>
+          </button>
+        </div>
+
+        <p class="home-note">Host this file anywhere, then open the same page on both devices.</p>
+        <p class="home-note" id="configWarning" hidden style="color:var(--live);">Add your Firebase config near the top of the file before this will sync &mdash; see the setup comment.</p>
+      </div>
+    </section>
+
+    <section id="screen-receiver" class="screen" hidden>
+      <div class="unit">
+        <button type="button" class="back-btn" data-action="home">&larr; change role</button>
+
+        <p class="unit-label unit-label--center">channel</p>
+        <div class="code-display" id="receiverCode">&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;</div>
+        <p class="code-hint" id="codeHint">setting up your channel&hellip;</p>
+
+        <div class="status-row">
+          <span class="lamp" id="receiverLamp"></span>
+          <span id="receiverStatusText" aria-live="polite">waiting for signal</span>
+        </div>
+
+        <div class="speaker-stage" id="speakerStage">
+          <div class="ring r1"></div>
+          <div class="ring r2"></div>
+          <div class="ring r3"></div>
+          <div class="speaker-core">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="9" width="4" height="6" rx="0.5"></rect>
+              <path d="M10 8 L17 4 V20 L10 16 Z"></path>
+            </svg>
+          </div>
+        </div>
+        <p class="now-playing" id="nowPlaying" aria-live="polite">&nbsp;</p>
+
+        <div class="fader-block">
+          <div class="fader-row">
+            <span class="fader-label">volume</span>
+            <span class="fader-value" id="receiverVolumeValue">100%</span>
+          </div>
+          <input type="range" min="0" max="100" value="100" class="fader" id="receiverVolumeSlider" style="--fill:100%;" aria-label="Local playback volume">
+        </div>
+
+        <audio id="receiverAudio" preload="none" style="display:none;"></audio>
+      </div>
+    </section>
+
+    <section id="screen-controller" class="screen" hidden>
+      <div class="unit">
+        <button type="button" class="back-btn" data-action="home">&larr; change role</button>
+
+        <div id="controllerConnect">
+          <p class="unit-label unit-label--center">channel</p>
+          <form id="connectForm" class="connect-form">
+            <label for="codeInput" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">6-digit channel code</label>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="codeInput" placeholder="000000" autocomplete="off">
+            <button type="submit" class="btn-primary" id="connectSubmitBtn">Connect</button>
+          </form>
+          <p class="form-error" id="connectError" aria-live="assertive"></p>
+        </div>
+
+        <div id="controllerConnected" hidden>
+          <div class="status-row">
+            <span class="lamp" id="controllerLamp"></span>
+            <span id="controllerStatusText" aria-live="polite">receiver offline</span>
+            <span class="channel-badge" id="channelBadge"></span>
+          </div>
+
+          <div class="fader-block">
+            <div class="fader-row">
+              <span class="fader-label">volume</span>
+              <span class="fader-value" id="controllerVolumeValue">100%</span>
+            </div>
+            <input type="range" min="0" max="100" value="100" class="fader" id="controllerVolumeSlider" style="--fill:100%;" aria-label="Receiver volume">
+          </div>
+
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload a sound">
+            <span class="dropzone-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15V4"></path>
+                <path d="M7 9l5-5 5 5"></path>
+                <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"></path>
+              </svg>
+            </span>
+            <span class="dropzone-text">drop a sound here, or tap to browse</span>
+            <span class="dropzone-hint">MP3, WAV or M4A &middot; up to 700KB</span>
+          </div>
+          <input type="file" id="fileInput" accept="audio/*" style="display:none;">
+          <p class="form-error" id="uploadError" aria-live="assertive"></p>
+
+          <div class="pads-block">
+            <p class="unit-label">pads</p>
+            <div class="pads-grid" id="padsGrid"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX_SOUND_BYTES = 700 * 1024;
+  var ROOM_COLLECTION = 'rooms';
+  var HEARTBEAT_MS = 8000;
+  var ONLINE_TIMEOUT_MS = 20000;
+
+  // ---- Paste your Firebase project's config here (see the setup comment at the
+  // top of this file). All 6 values come from Firebase Console > Project settings
+  // > Your apps > the web app's config snippet. ----
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBjNpuZS1uLJO4zWKjpkNLQ7vUoTRanaSs",
+    authDomain: "soundbeam-63b0a.firebaseapp.com",
+    projectId: "soundbeam-63b0a",
+    storageBucket: "soundbeam-63b0a.firebasestorage.app",
+    messagingSenderId: "1063873087593",
+    appId: "1:1063873087593:web:531563aba5a5321c59baf8"
+  };
+  var firebaseAppInitialized = false;
+  var lastDbError = '';
+  var AUDIO_EXT_MIME = { mp3:'audio/mpeg', wav:'audio/wav', m4a:'audio/mp4', ogg:'audio/ogg', aac:'audio/aac', webm:'audio/webm', flac:'audio/flac' };
+  var ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>';
+  var ICON_DELETE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
+
+  var db = null;
+  var dbPromise = null;
+  var idbPromise = null;
+  var currentCode = null;
+  var role = null;
+  var roomUnsub = null;
+  var heartbeatTimer = null;
+  var volumeWriteTimer = null;
+  var nowPlayingTimer = null;
+  var lastPlayedSoundId = null;
+  var localVolumeOverrideUntil = 0;
+  var currentBlobUrl = null;
+  var audioUnlocked = false;
+
+  function $(sel) { return document.querySelector(sel); }
+
+  function nowMs() { return Date.now(); }
+
+  function randomCode() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  }
+
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var result = String(reader.result);
+        var comma = result.indexOf(',');
+        resolve(result.slice(comma + 1));
+      };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function base64ToBlob(base64, mime) {
+    var binary = atob(base64);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+
+  function resolveAudioMime(file) {
+    if (file.type && file.type.indexOf('audio/') === 0) return file.type;
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    return AUDIO_EXT_MIME[ext] || null;
+  }
+
+  function syncFaderFill(el) {
+    el.style.setProperty('--fill', el.value + '%');
+  }
+
+  /* ---------------- Firestore-backed db (drop-in for the same doc/get/set/update/onSnapshot shape) ---------------- */
+
+  function isConfigured() {
+    return !!FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey.indexOf('PASTE_') !== 0;
+  }
+
+  // Firestore's JS SDK changed DocumentSnapshot.exists from a property (v8 / compat
+  // namespaced API) to a method in some releases. Handle either shape so this keeps
+  // working regardless of exactly which the loaded compat build exposes.
+  function snapExists(snap) {
+    return typeof snap.exists === 'function' ? snap.exists() : !!snap.exists;
+  }
+
+  function wrapDocRef(ref) {
+    return {
+      get: function () {
+        return ref.get().then(function (snap) {
+          return { exists: snapExists(snap), data: function () { return snap.data(); } };
+        });
+      },
+      set: function (data) { return ref.set(data); },
+      update: function (data) { return ref.update(data); },
+      onSnapshot: function (next, err) {
+        return ref.onSnapshot(function (snap) {
+          next({ exists: snapExists(snap), data: function () { return snap.data(); } });
+        }, err);
+      }
+    };
+  }
+
+  function getDb() {
+    if (!dbPromise) {
+      dbPromise = new Promise(function (resolve) {
+        if (!isConfigured()) { resolve(null); return; }
+        try {
+          if (!firebaseAppInitialized) {
+            firebase.initializeApp(FIREBASE_CONFIG);
+            firebaseAppInitialized = true;
+          }
+          var fs = firebase.firestore();
+          resolve({
+            doc: function (path) {
+              var parts = path.split('/');
+              return wrapDocRef(fs.collection(parts[0]).doc(parts[1]));
+            }
+          });
+        } catch (e) {
+          lastDbError = (e && e.message) ? e.message : String(e);
+          resolve(null);
+        }
+      });
+    }
+    return dbPromise;
+  }
+
+  /* ---------------- Local saved-sounds library (IndexedDB) ---------------- */
+
+  function openLibrary() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('no indexeddb')); return; }
+      var req = indexedDB.open('soundbeam-library', 1);
+      req.onupgradeneeded = function () {
+        var d = req.result;
+        if (!d.objectStoreNames.contains('sounds')) {
+          d.createObjectStore('sounds', { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  function getLibrary() {
+    if (!idbPromise) idbPromise = openLibrary();
+    return idbPromise;
+  }
+
+  function libAddSound(sound) {
+    return getLibrary().then(function (d) {
+      return new Promise(function (resolve, reject) {
+        var tx = d.transaction('sounds', 'readwrite');
+        tx.objectStore('sounds').put(sound);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function libGetAll() {
+    return getLibrary().then(function (d) {
+      return new Promise(function (resolve, reject) {
+        var tx = d.transaction('sounds', 'readonly');
+        var req = tx.objectStore('sounds').getAll();
+        req.onsuccess = function () {
+          var rows = req.result || [];
+          rows.sort(function (a, b) { return b.addedAt - a.addedAt; });
+          resolve(rows);
+        };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+
+  function libDelete(id) {
+    return getLibrary().then(function (d) {
+      return new Promise(function (resolve, reject) {
+        var tx = d.transaction('sounds', 'readwrite');
+        tx.objectStore('sounds').delete(id);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  /* ---------------- Navigation ---------------- */
+
+  function showScreen(id) {
+    var screens = document.querySelectorAll('.screen');
+    for (var i = 0; i < screens.length; i++) {
+      screens[i].hidden = screens[i].id !== id;
+    }
+  }
+
+  function teardownRoom() {
+    if (roomUnsub) { roomUnsub(); roomUnsub = null; }
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    clearTimeout(volumeWriteTimer);
+    clearTimeout(nowPlayingTimer);
+  }
+
+  function goHome() {
+    teardownRoom();
+    role = null;
+    currentCode = null;
+    showScreen('screen-home');
+  }
+
+  /* ---------------- Errors ---------------- */
+
+  function showConnectError(msg) { $('#connectError').textContent = msg; }
+  function clearConnectError() { $('#connectError').textContent = ''; }
+  function showUploadError(msg) { $('#uploadError').textContent = msg; }
+  function clearUploadError() { $('#uploadError').textContent = ''; }
+
+  /* ---------------- Receiver role ---------------- */
+
+  function setReceiverLoading() {
+    $('#receiverCode').textContent = '\u2014\u2014\u2014\u2014\u2014\u2014';
+    $('#codeHint').textContent = 'setting up your channel\u2026';
+  }
+  function setReceiverReady(code) {
+    $('#receiverCode').textContent = code;
+    $('#codeHint').textContent = 'enter this on the sending device';
+  }
+  function setReceiverUnavailable() {
+    $('#receiverCode').textContent = '\u2014\u2014\u2014\u2014\u2014\u2014';
+    $('#codeHint').textContent = isConfigured()
+      ? ("couldn't connect to Firebase" + (lastDbError ? ' (' + lastDbError + ')' : '') + " \u2014 check your config and Firestore rules")
+      : 'add your Firebase config near the top of the file first \u2014 see the setup comment';
+  }
+  function setReceiverStatus(online) {
+    $('#receiverLamp').classList.toggle('lamp-on', online);
+    $('#receiverStatusText').textContent = online ? 'a sender is connected' : 'waiting for signal';
+  }
+  function applyReceiverVolume(vol, isLocal) {
+    var pct = Math.round(vol * 100);
+    var slider = $('#receiverVolumeSlider');
+    slider.value = pct;
+    syncFaderFill(slider);
+    $('#receiverVolumeValue').textContent = pct + '%';
+    $('#receiverAudio').volume = vol;
+    if (isLocal) localVolumeOverrideUntil = nowMs() + 15000;
+  }
+
+  function unlockAudioOnce() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    var el = $('#receiverAudio');
+    if (!el) return;
+    var p = el.play();
+    if (p && p.catch) p.catch(function () {});
+    el.pause();
+  }
+
+  function triggerSpeakerAnimation() {
+    var stage = $('#speakerStage');
+    stage.classList.remove('playing');
+    void stage.offsetWidth;
+    stage.classList.add('playing');
+  }
+
+  function showNowPlayingText(text, duration) {
+    var el = $('#nowPlaying');
+    el.textContent = text;
+    clearTimeout(nowPlayingTimer);
+    nowPlayingTimer = setTimeout(function () { el.textContent = '\u00A0'; }, duration || 4000);
+  }
+
+  function playIncomingSound(sound) {
+    try {
+      var mime = (sound.mime && sound.mime.indexOf('audio/') === 0) ? sound.mime : 'audio/mpeg';
+      var blob = base64ToBlob(sound.data, mime);
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = URL.createObjectURL(blob);
+      var audioEl = $('#receiverAudio');
+      audioEl.src = currentBlobUrl;
+      audioEl.volume = Number($('#receiverVolumeSlider').value) / 100;
+      var playPromise = audioEl.play();
+      if (playPromise && playPromise.catch) {
+        playPromise.catch(function () {
+          showNowPlayingText('sound blocked \u2014 tap anywhere, then resend', 8000);
+        });
+      }
+      showNowPlayingText('now playing: ' + (sound.name || 'sound'), 4000);
+      triggerSpeakerAnimation();
+    } catch (e) {
+      /* malformed payload, ignore quietly */
+    }
+  }
+
+  function handleReceiverUpdate(data) {
+    var controllerOnline = typeof data.controllerLastSeen === 'number' &&
+      (nowMs() - data.controllerLastSeen) < ONLINE_TIMEOUT_MS;
+    setReceiverStatus(controllerOnline);
+
+    if (data.sound && data.sound.id && data.sound.id !== lastPlayedSoundId) {
+      lastPlayedSoundId = data.sound.id;
+      playIncomingSound(data.sound);
+    }
+
+    if (typeof data.volume === 'number' && nowMs() > localVolumeOverrideUntil) {
+      applyReceiverVolume(data.volume, false);
+    }
+  }
+
+  function startReceiver() {
+    role = 'receiver';
+    currentCode = null;
+    lastPlayedSoundId = null;
+    localVolumeOverrideUntil = 0;
+    showScreen('screen-receiver');
+    setReceiverStatus(false);
+    setReceiverLoading();
+    applyReceiverVolume(1, false);
+
+    getDb().then(function (dbi) {
+      if (!dbi) { setReceiverUnavailable(); return; }
+      db = dbi;
+
+      var code = randomCode();
+      var attempt = 0;
+
+      function tryCreate() {
+        return db.doc(ROOM_COLLECTION + '/' + code).get().then(function (snap) {
+          if (snap.exists && attempt < 5) {
+            attempt++;
+            code = randomCode();
+            return tryCreate();
+          }
+          currentCode = code;
+          return db.doc(ROOM_COLLECTION + '/' + code).set({
+            createdAt: nowMs(),
+            receiverLastSeen: nowMs(),
+            controllerLastSeen: 0,
+            volume: 1,
+            sound: null,
+            soundUpdatedAt: 0
+          });
+        });
+      }
+
+      tryCreate().then(function () {
+        setReceiverReady(currentCode);
+
+        heartbeatTimer = setInterval(function () {
+          if (!currentCode || !db) return;
+          db.doc(ROOM_COLLECTION + '/' + currentCode).update({ receiverLastSeen: nowMs() }).catch(function () {});
+        }, HEARTBEAT_MS);
+
+        roomUnsub = db.doc(ROOM_COLLECTION + '/' + currentCode).onSnapshot(function (snap) {
+          if (!snap.exists) return;
+          handleReceiverUpdate(snap.data() || {});
+        }, function () {
+          setReceiverStatus(false);
+        });
+      }).catch(function () {
+        setReceiverUnavailable();
+      });
+    });
+  }
+
+  /* ---------------- Controller role ---------------- */
+
+  function setControllerStatus(online) {
+    $('#controllerLamp').classList.toggle('lamp-on', online);
+    $('#controllerStatusText').textContent = online ? 'receiver connected' : 'receiver offline';
+  }
+  function setControllerVolumeUI(vol) {
+    var pct = Math.round(vol * 100);
+    var slider = $('#controllerVolumeSlider');
+    slider.value = pct;
+    syncFaderFill(slider);
+    $('#controllerVolumeValue').textContent = pct + '%';
+  }
+
+  function startControllerRole() {
+    role = 'controller';
+    currentCode = null;
+    lastPlayedSoundId = null;
+    showScreen('screen-controller');
+    $('#controllerConnect').hidden = false;
+    $('#controllerConnected').hidden = true;
+    $('#codeInput').value = '';
+    clearConnectError();
+    clearUploadError();
+  }
+
+  function connectController(code) {
+    clearConnectError();
+    if (!/^\d{6}$/.test(code)) {
+      showConnectError('Enter the 6-digit channel code.');
+      return;
+    }
+
+    var btn = $('#connectSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Connecting\u2026';
+
+    getDb().then(function (dbi) {
+      if (!dbi) {
+        showConnectError(isConfigured()
+          ? ("Can't connect to Firebase" + (lastDbError ? ' (' + lastDbError + ')' : '') + ' \u2014 check your config and Firestore rules.')
+          : 'Add your Firebase config near the top of the file first \u2014 see the setup comment.');
+        btn.disabled = false; btn.textContent = 'Connect';
+        return;
+      }
+      db = dbi;
+
+      db.doc(ROOM_COLLECTION + '/' + code).get().then(function (snap) {
+        btn.disabled = false; btn.textContent = 'Connect';
+
+        if (!snap.exists) {
+          showConnectError('Channel ' + code + " isn't active. Check the code on the receiving device.");
+          return;
+        }
+
+        currentCode = code;
+        lastPlayedSoundId = null;
+        $('#channelBadge').textContent = code;
+        $('#controllerConnect').hidden = true;
+        $('#controllerConnected').hidden = false;
+
+        var data = snap.data() || {};
+        if (typeof data.volume === 'number') setControllerVolumeUI(data.volume);
+
+        roomUnsub = db.doc(ROOM_COLLECTION + '/' + code).onSnapshot(function (s) {
+          if (!s.exists) { setControllerStatus(false); return; }
+          var d = s.data() || {};
+          var online = typeof d.receiverLastSeen === 'number' &&
+            (nowMs() - d.receiverLastSeen) < ONLINE_TIMEOUT_MS;
+          setControllerStatus(online);
+        }, function () {
+          setControllerStatus(false);
+        });
+
+        heartbeatTimer = setInterval(function () {
+          if (!currentCode || !db) return;
+          db.doc(ROOM_COLLECTION + '/' + currentCode).update({ controllerLastSeen: nowMs() }).catch(function () {});
+        }, HEARTBEAT_MS);
+        db.doc(ROOM_COLLECTION + '/' + code).update({ controllerLastSeen: nowMs() }).catch(function () {});
+
+        renderPads();
+      }).catch(function () {
+        btn.disabled = false; btn.textContent = 'Connect';
+        showConnectError('Could not reach the channel. Try again.');
+      });
+    });
+  }
+
+  function sendSound(sound) {
+    if (!currentCode || !db) return;
+    var sendId = uid();
+    db.doc(ROOM_COLLECTION + '/' + currentCode).update({
+      sound: { id: sendId, name: sound.name, mime: sound.mime, data: sound.data },
+      soundUpdatedAt: nowMs()
+    }).catch(function () {
+      showUploadError('Could not send that sound. Try again.');
+    });
+  }
+
+  function previewLocally(sound) {
+    try {
+      var blob = base64ToBlob(sound.data, sound.mime);
+      var url = URL.createObjectURL(blob);
+      var audio = new Audio(url);
+      audio.play().catch(function () {});
+      audio.addEventListener('ended', function () { URL.revokeObjectURL(url); });
+    } catch (e) {}
+  }
+
+  function renderPads() {
+    var grid = $('#padsGrid');
+    libGetAll().catch(function () { return []; }).then(function (sounds) {
+      grid.innerHTML = '';
+      if (!sounds || sounds.length === 0) {
+        var empty = document.createElement('p');
+        empty.className = 'pads-empty';
+        empty.textContent = 'No sounds yet \u2014 upload one above to fill your first pad.';
+        grid.appendChild(empty);
+        return;
+      }
+      sounds.forEach(function (sound) {
+        var pad = document.createElement('div');
+        pad.className = 'pad';
+        pad.dataset.id = sound.id;
+
+        var nameEl = document.createElement('span');
+        nameEl.className = 'pad-name';
+        nameEl.textContent = sound.name;
+        pad.appendChild(nameEl);
+
+        var previewBtn = document.createElement('button');
+        previewBtn.type = 'button';
+        previewBtn.className = 'pad-icon-btn pad-preview';
+        previewBtn.setAttribute('aria-label', 'Preview ' + sound.name);
+        previewBtn.innerHTML = ICON_PLAY;
+        previewBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          previewLocally(sound);
+        });
+        pad.appendChild(previewBtn);
+
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'pad-icon-btn pad-delete';
+        delBtn.setAttribute('aria-label', 'Delete ' + sound.name);
+        delBtn.innerHTML = ICON_DELETE;
+        delBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          libDelete(sound.id).catch(function () {}).then(renderPads);
+        });
+        pad.appendChild(delBtn);
+
+        pad.addEventListener('click', function () {
+          sendSound(sound);
+          pad.classList.add('pad-pressed');
+          setTimeout(function () { pad.classList.remove('pad-pressed'); }, 200);
+        });
+
+        grid.appendChild(pad);
+      });
+    });
+  }
+
+  function handleNewFile(file) {
+    clearUploadError();
+    var mime = resolveAudioMime(file);
+    if (!mime) { showUploadError("That doesn't look like an audio file."); return; }
+    if (file.size > MAX_SOUND_BYTES) {
+      showUploadError('Keep sounds under 700KB \u2014 trim the clip and try again.');
+      return;
+    }
+
+    fileToBase64(file).then(function (base64) {
+      var name = (file.name || 'sound').replace(/\.[^.]+$/, '').slice(0, 40) || 'sound';
+      var sound = { id: uid(), name: name, mime: mime, data: base64, addedAt: nowMs() };
+
+      libAddSound(sound).catch(function () {}).then(function () {
+        renderPads();
+        sendSound(sound);
+      });
+    }).catch(function () {
+      showUploadError('Could not read that file. Try a different one.');
+    });
+  }
+
+  /* ---------------- Event wiring ---------------- */
+
+  function wireEvents() {
+    var roleButtons = document.querySelectorAll('.role-btn');
+    for (var i = 0; i < roleButtons.length; i++) {
+      roleButtons[i].addEventListener('click', function (e) {
+        var r = e.currentTarget.dataset.role;
+        if (r === 'controller') startControllerRole();
+        else startReceiver();
+      });
+    }
+
+    var backButtons = document.querySelectorAll('[data-action="home"]');
+    for (var j = 0; j < backButtons.length; j++) {
+      backButtons[j].addEventListener('click', goHome);
+    }
+
+    $('#codeInput').addEventListener('input', function (e) {
+      e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+    });
+
+    $('#connectForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      connectController($('#codeInput').value.trim());
+    });
+
+    $('#receiverVolumeSlider').addEventListener('input', function (e) {
+      syncFaderFill(e.target);
+      applyReceiverVolume(Number(e.target.value) / 100, true);
+    });
+
+    $('#controllerVolumeSlider').addEventListener('input', function (e) {
+      var slider = e.target;
+      syncFaderFill(slider);
+      var pct = Number(slider.value);
+      $('#controllerVolumeValue').textContent = pct + '%';
+      clearTimeout(volumeWriteTimer);
+      volumeWriteTimer = setTimeout(function () {
+        if (!currentCode || !db) return;
+        db.doc(ROOM_COLLECTION + '/' + currentCode).update({ volume: pct / 100 }).catch(function () {});
+      }, 180);
+    });
+
+    var dropzone = $('#dropzone');
+    ['dragenter', 'dragover'].forEach(function (evt) {
+      dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.add('drag-active'); });
+    });
+    ['dragleave', 'drop'].forEach(function (evt) {
+      dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.remove('drag-active'); });
+    });
+    dropzone.addEventListener('drop', function (e) {
+      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) handleNewFile(file);
+    });
+    dropzone.addEventListener('click', function () { $('#fileInput').click(); });
+    dropzone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileInput').click(); }
+    });
+
+    $('#fileInput').addEventListener('change', function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (file) handleNewFile(file);
+      e.target.value = '';
+    });
+
+    document.addEventListener('pointerdown', unlockAudioOnce, { once: true });
+  }
+
+  function boot() {
+    wireEvents();
+    showScreen('screen-home');
+    if (!isConfigured()) { $('#configWarning').hidden = false; }
+    getDb();
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
